@@ -1,0 +1,7 @@
+state.json
+state.json.tmp
+events.jsonl
+events.1.jsonl
+server.log
+server.pid
+start-hidden.vbs

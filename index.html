@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Agents</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --panel2: #1c222b; --border: #2a313c;
+    --text: #e6edf3; --muted: #8b949e; --faint: #6e7681;
+    --run: #3fb950; --idle: #d29922; --done: #8b949e; --accent: #58a6ff; --track: #262d37;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: rgba(14,17,22,.92); backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border); padding: 12px 16px; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  .conn { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .conn i { width: 8px; height: 8px; border-radius: 50%; background: var(--done); display: inline-block; }
+  .conn.ok i { background: var(--run); }
+  .summary { display: flex; gap: 8px; flex-wrap: wrap; max-width: 1400px; margin: 10px auto 0; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; min-width: 92px; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .stat span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .stat.overall { flex: 1 1 220px; }
+  .stat.overall .bar { margin-top: 6px; }
+  main { max-width: 1400px; margin: 0 auto; padding: 16px; }
+  .project { margin-bottom: 22px; }
+  .project h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 8px; display: flex; gap: 8px; align-items: baseline; }
+  .project h2 .name { color: var(--text); font-size: 15px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  .card.idle { border-color: #4a3b12; }
+  .card.done { opacity: .55; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+  .who { min-width: 0; }
+  .who .proj { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who .type { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; text-transform: uppercase; letter-spacing: .4px; }
+  .badge.running { color: var(--run); background: rgba(63,185,80,.12); }
+  .badge.idle { color: var(--idle); background: rgba(210,153,34,.14); }
+  .badge.done { color: var(--done); background: rgba(139,148,158,.14); }
+  .bar { height: 8px; background: var(--track); border-radius: 999px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); border-radius: 999px; transition: width .4s ease; }
+  .card.done .bar > div { background: var(--done); }
+  .prog { margin: 10px 0 6px; }
+  .prog .nums { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .prog .nums b { color: var(--text); font-weight: 600; }
+  .added { color: var(--idle); }
+  .notasks { color: var(--faint); font-style: italic; font-size: 13px; margin: 10px 0 6px; }
+  .line { font-size: 13px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .line .k { color: var(--faint); margin-right: 4px; }
+  .line code { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #c9d1d9; }
+  .meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 8px; gap: 8px; }
+  details.tl { margin-top: 8px; font-size: 12px; }
+  details.tl summary { cursor: pointer; color: var(--faint); }
+  details.tl ul { list-style: none; padding: 0; margin: 6px 0 0; }
+  details.tl li { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+  details.tl li.completed { text-decoration: line-through; color: var(--faint); }
+  details.tl li.in_progress { color: var(--text); }
+  .finished { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .finished > summary { cursor: pointer; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
+  .finished .actions { margin: 0 0 10px; }
+  button { background: var(--panel2); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  button:hover { color: var(--text); }
+  .empty { text-align: center; color: var(--muted); padding: 60px 16px; }
+  .empty code { background: var(--panel); padding: 2px 6px; border-radius: 4px; }
+  @media (max-width: 520px) {
+    header { padding: 10px 12px; } main { padding: 12px; }
+    .grid { grid-template-columns: 1fr; }
+    .stat { min-width: 0; flex: 1 1 28%; padding: 6px 10px; }
+    .stat.overall { flex-basis: 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>Claude Code agents</h1>
+    <div class="conn" id="conn"><i></i><span>connecting…</span></div>
+  </div>
+  <div class="summary" id="summary"></div>
+</header>
+<main id="main"></main>
+
+<script>
+(() => {
+  const IDLE_MS = 5 * 60 * 1000;
+  let snap = { now: Date.now(), agents: [] };
+  let skew = 0; // server clock - local clock
+  const openTaskLists = new Set();
+  let finishedOpen = false;
+  try { finishedOpen = localStorage.getItem('finishedOpen') === '1'; } catch (_) {}
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const now = () => Date.now() + skew;
+
+  function dur(ms) {
+    ms = Math.max(0, ms); const s = Math.floor(ms / 1000);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60); if (m < 60) return m + 'm';
+    const h = Math.floor(m / 60); if (h < 24) return h + 'h ' + (m % 60) + 'm';
+    return Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
+  }
+  const ago = t => t ? (now() - t < 5000 ? 'just now' : dur(now() - t) + ' ago') : '';
+
+  function statusOf(a) {
+    if (a.status === 'done') return 'done';
+    return now() - a.lastEventAt > IDLE_MS ? 'idle' : 'running';
+  }
+  const pct = a => a.total ? Math.round((a.done / a.total) * 100) : null;
+
+  function card(a) {
+    const st = statusOf(a);
+    const p = pct(a);
+    const type = a.agentType === 'main' ? 'main session' : a.agentType;
+    let prog;
+    if (a.total) {
+      prog = `<div class="prog"><div class="bar"><div style="width:${p}%"></div></div>
+        <div class="nums"><span><b>${p}%</b> · ${a.done} of ${a.total} tasks</span>
+        ${a.tasksAdded ? `<span class="added" title="Tasks were added after work started, so the % can drop">+${a.tasksAdded} task${a.tasksAdded > 1 ? 's' : ''} added</span>` : ''}</div></div>`;
+    } else {
+      prog = `<div class="notasks">No task list</div>`;
+    }
+    const cur = a.current ? `<div class="line" title="${esc(a.current)}"><span class="k">Now</span>${esc(a.current)}</div>` : '';
+    const tool = a.lastTool ? `<div class="line" title="${esc(a.lastTool.name + ' · ' + (a.lastTool.detail || ''))}"><span class="k">Last</span><code>${esc(a.lastTool.name)}${a.lastTool.detail ? ' · ' + esc(a.lastTool.detail) : ''}</code> <span class="k">${ago(a.lastTool.at)}</span></div>` : '';
+    const msg = st === 'done' && a.lastMessage ? `<div class="line" title="${esc(a.lastMessage)}"><span class="k">Result</span>${esc(a.lastMessage)}</div>` : '';
+    const end = a.endedAt || now();
+    const tl = a.tasks && a.tasks.length ? `<details class="tl" data-key="${esc(a.key)}"${openTaskLists.has(a.key) ? ' open' : ''}><summary>Tasks</summary><ul>${
+      a.tasks.map(t => `<li class="${esc(t.st)}">${t.st === 'completed' ? '✓' : t.st === 'in_progress' ? '▸' : '○'} ${esc(t.s)}</li>`).join('')}</ul></details>` : '';
+    return `<div class="card ${st}">
+      <div class="row"><div class="who"><div class="proj" title="${esc(a.cwd)}">${esc(a.project)}</div><div class="type">${esc(type)}</div></div>
+      <span class="badge ${st}">${st}</span></div>
+      ${prog}${cur}${tool}${msg}
+      <div class="meta"><span>${st === 'done' ? 'ran ' : 'running '}${dur(end - a.startedAt)}</span><span>${st === 'done' ? 'finished ' + ago(a.endedAt) : 'active ' + ago(a.lastEventAt)}</span></div>
+      ${tl}</div>`;
+  }
+
+  // Least progress first; agents without a task list go after those with one.
+  const progKey = a => a.total ? a.done / a.total : 2;
+
+  function render() {
+    const active = snap.agents.filter(a => a.status !== 'done');
+    const finished = snap.agents.filter(a => a.status === 'done').sort((a, b) => b.endedAt - a.endedAt);
+    const running = active.filter(a => statusOf(a) === 'running').length;
+    const idle = active.length - running;
+    const withTasks = active.filter(a => a.total);
+    const T = withTasks.reduce((s, a) => s + a.total, 0), D = withTasks.reduce((s, a) => s + a.done, 0);
+    const overall = T ? Math.round(D / T * 100) : 0;
+
+    $('summary').innerHTML = `
+      <div class="stat"><b>${running}</b><span>Running</span></div>
+      <div class="stat"><b>${idle}</b><span>Idle</span></div>
+      <div class="stat"><b>${finished.length}</b><span>Done</span></div>
+      <div class="stat overall"><b>${T ? overall + '%' : '—'}</b><span>Overall progress${T ? ` · ${D} of ${T} tasks` : ''}</span>
+        <div class="bar"><div style="width:${overall}%"></div></div></div>`;
+
+    const groups = {};
+    for (const a of active) (groups[a.project] = groups[a.project] || []).push(a);
+    const projects = Object.keys(groups).map(name => {
+      const list = groups[name].sort((x, y) => progKey(x) - progKey(y) || x.startedAt - y.startedAt);
+      return { name, list, key: Math.min(...list.map(progKey)) };
+    }).sort((x, y) => x.key - y.key || x.name.localeCompare(y.name));
+
+    let html = '';
+    if (!active.length) {
+      html += `<div class="empty">No agents running right now.<br><br>Start a Claude Code session anywhere and it will show up here.</div>`;
+    }
+    for (const g of projects) {
+      html += `<section class="project"><h2><span class="name">${esc(g.name)}</span><span>${g.list.length} agent${g.list.length > 1 ? 's' : ''}</span></h2>
+        <div class="grid">${g.list.map(card).join('')}</div></section>`;
+    }
+    if (finished.length) {
+      html += `<details class="finished" id="finished"${finishedOpen ? ' open' : ''}><summary>Finished (${finished.length}) — cleared after 1 hour</summary>
+        <div class="actions"><button id="clearBtn">Clear now</button></div>
+        <div class="grid">${finished.map(card).join('')}</div></details>`;
+    }
+    $('main').innerHTML = html;
+
+    const f = $('finished');
+    if (f) f.addEventListener('toggle', () => { finishedOpen = f.open; try { localStorage.setItem('finishedOpen', f.open ? '1' : '0'); } catch (_) {} });
+    const c = $('clearBtn');
+    if (c) c.addEventListener('click', () => fetch('/clear-finished', { method: 'POST' }));
+    document.querySelectorAll('details.tl').forEach(d => d.addEventListener('toggle', () => {
+      d.open ? openTaskLists.add(d.dataset.key) : openTaskLists.delete(d.dataset.key);
+    }));
+    document.title = running ? `(${running}) Claude Agents` : 'Claude Agents';
+  }
+
+  function connect() {
+    const es = new EventSource('/stream');
+    const conn = $('conn');
+    es.onopen = () => { conn.className = 'conn ok'; conn.querySelector('span').textContent = 'live'; };
+    es.onmessage = e => {
+      try { snap = JSON.parse(e.data); skew = snap.now - Date.now(); render(); } catch (_) {}
+    };
+    es.onerror = () => { conn.className = 'conn'; conn.querySelector('span').textContent = 'reconnecting…'; };
+  }
+
+  render();
+  connect();
+  setInterval(render, 1000); // keep "ago"/durations/idle status fresh
+})();
+</script>
+</body>
+</html>
