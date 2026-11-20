@@ -10,8 +10,12 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = Number(process.env.CLAUDE_DASHBOARD_PORT) || 4777;
-const HOST = process.env.CLAUDE_DASHBOARD_HOST || '127.0.0.1';
+// Hosted mode: set DASHBOARD_TOKEN (and the platform sets PORT). The server then listens on all
+// interfaces and requires the token for everything: hooks send `Authorization: Bearer <token>`,
+// browsers open /?token=<token> once and get a long-lived cookie.
+const TOKEN = process.env.DASHBOARD_TOKEN || '';
+const PORT = Number(process.env.CLAUDE_DASHBOARD_PORT || process.env.PORT) || 4777;
+const HOST = process.env.CLAUDE_DASHBOARD_HOST || (TOKEN ? '0.0.0.0' : '127.0.0.1');
 const DIR = __dirname;
 const DATA_DIR = process.env.CLAUDE_DASHBOARD_DATA || DIR;
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
@@ -355,8 +359,39 @@ function scheduleBroadcast() {
 }
 
 // ---------------------------------------------------------------- HTTP
+const crypto = require('crypto');
+function safeEq(a, b) {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+function authorized(req, query) {
+  if (!TOKEN) return true;
+  const h = req.headers.authorization || '';
+  if (h.startsWith('Bearer ') && safeEq(h.slice(7).trim(), TOKEN)) return true;
+  if (query.get('token') && safeEq(query.get('token'), TOKEN)) return true;
+  const m = (req.headers.cookie || '').match(/(?:^|;\s*)cad_token=([^;]+)/);
+  return !!(m && safeEq(decodeURIComponent(m[1]), TOKEN));
+}
+
 const server = http.createServer((req, res) => {
-  const url = (req.url || '/').split('?')[0];
+  const [url, qs] = (req.url || '/').split('?');
+  const query = new URLSearchParams(qs || '');
+
+  if (req.method === 'GET' && url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('ok'); return; }
+
+  if (!authorized(req, query)) {
+    // Hooks must never see an error: unauthorized POSTs get an empty 200 and are dropped.
+    if (req.method === 'POST') { req.resume(); res.writeHead(200, { 'Content-Length': '0' }); res.end(); return; }
+    res.writeHead(401, { 'Content-Type': 'text/plain' }); res.end('Open this page as /?token=<your DASHBOARD_TOKEN> once.'); return;
+  }
+  // Browser opened /?token=…: remember it in a cookie and drop it from the address bar.
+  if (TOKEN && req.method === 'GET' && query.get('token')) {
+    res.writeHead(302, {
+      'Set-Cookie': `cad_token=${encodeURIComponent(TOKEN)}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`,
+      Location: url || '/',
+    });
+    res.end(); return;
+  }
 
   if (req.method === 'POST' && url === '/events') {
     const chunks = []; let size = 0; let tooBig = false;
@@ -433,12 +468,12 @@ process.on('uncaughtException', e => console.error('uncaught:', e && e.stack));
 
 sweep();
 // `localhost` may resolve to ::1 for some clients; also listen there (loopback only). Ignore if IPv6 is off.
-if (!process.env.CLAUDE_DASHBOARD_HOST) {
+if (HOST === '127.0.0.1') {
   const v6 = http.createServer(server.listeners('request')[0]);
   v6.on('error', () => {});
   v6.listen(PORT, '::1');
 }
 server.listen(PORT, HOST, () => {
   try { fs.writeFileSync(PID_FILE, String(process.pid)); } catch (_) {}
-  console.log(`Claude Agent Dashboard on http://localhost:${PORT}`);
+  console.log(`Claude Agent Dashboard on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}${TOKEN ? ' (token required)' : ''}`);
 });

@@ -30,6 +30,26 @@ Sessions that are already running only pick up the new hooks after a restart.
 
 Flags: `--no-hooks`, `--no-claude-md`, `--no-autostart`.
 
+## Cloud sessions (claude.ai/code, e.g. from an iPad)
+
+Cloud sessions each run in their own container, so they can't reach a `localhost` dashboard. For them, host the server publicly and install the hooks with the cloud environment's setup script.
+
+**1. Host the server.** Any platform that runs a long-lived Node process works. It needs no build step and no dependencies, and the start command is `npm start`. For example, on [Railway](https://railway.app), which can be set up from a browser: *New Project → Deploy from GitHub repo → this repo*. Then:
+- Set the variable `DASHBOARD_TOKEN` to a long random string. With a token set, the server listens on the platform's `PORT`, and every request needs that token.
+- Optional: add a volume and set `CLAUDE_DASHBOARD_DATA` to its mount path, so `state.json` survives redeploys.
+- Generate a public domain, e.g. `https://xyz.up.railway.app`.
+
+Avoid hosts that sleep when idle, such as Render's free tier. Hooks time out after 2 seconds, so events sent while the server wakes up are lost.
+
+**2. Open it once on your iPad** at `https://<host>/?token=<DASHBOARD_TOKEN>`. That sets a 1-year cookie and removes the token from the address bar. Add it to your Home Screen if you like. `GET /healthz` is the only unauthenticated route.
+
+**3. Install hooks in your cloud environment.** Open the environment settings (cloud environment menu → Edit):
+- **Setup script**: paste `cloud-setup.sh`, with `DASH` set to your host. On each new session it merges the hooks into the container's `~/.claude/settings.json` and adds the CLAUDE.md line. SessionStart uses `curl` as a command hook, because that event doesn't run HTTP hooks.
+- **Network secret** for your dashboard host: the `DASHBOARD_TOKEN` value, as a Bearer token. The session's proxy adds it to every request to that host, which also allows the host. The token never appears in the script or the hooks.
+- Repeat this for each environment your agents use. Hooks take effect in sessions started after the change.
+
+Hooks fail silently if the dashboard is down or the token is wrong. Agents keep working either way.
+
 ## Start / stop
 
 ```bash
@@ -81,7 +101,7 @@ Uninstall removes only the dashboard's own hooks: HTTP hooks pointing at `localh
 - Finished cards move to a collapsible **Finished** section and are removed after 1 hour.
 - **Persistence**: state is saved to `state.json` every 3 seconds, and on shutdown.
 - **Debug log**: every raw event is appended to `events.jsonl`. It rotates to `events.1.jsonl` at 50 MB.
-- Environment overrides: `CLAUDE_DASHBOARD_PORT` and `CLAUDE_DASHBOARD_DATA` (the data directory). `CLAUDE_CONFIG_DIR` is respected by the installer.
+- Environment overrides: `CLAUDE_DASHBOARD_PORT` (or `PORT`), `CLAUDE_DASHBOARD_DATA` (the data directory), and `DASHBOARD_TOKEN` (hosted mode: listen on all interfaces and require the token). `CLAUDE_CONFIG_DIR` is respected by the installer.
 
 ## Files
 
@@ -91,5 +111,7 @@ Uninstall removes only the dashboard's own hooks: HTTP hooks pointing at `localh
 | `index.html` | the page |
 | `install.js` | install / uninstall / start / stop |
 | `forward-hook.js` | SessionStart forwarder |
-| `simulate.sh` | fake events |
+| `simulate.sh` | fake events (`./simulate.sh` uses localhost; edit `URL` for a hosted server) |
+| `cloud-setup.sh` | setup script for cloud environments |
+| `package.json` | start script for hosting platforms (no dependencies) |
 | `state.json`, `events.jsonl`, `server.log` | runtime data (git-ignored) |
