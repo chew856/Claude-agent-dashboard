@@ -5,7 +5,7 @@
 //   node install.js uninstall  remove hooks, CLAUDE.md line and autostart; stop the server
 //   node install.js start | stop | status
 //
-// Flags: --no-autostart  --no-claude-md  --no-hooks
+// Flags: --lan (reachable from other devices on your Wi-Fi, with a token)  --no-autostart  --no-claude-md  --no-hooks
 'use strict';
 
 const fs = require('fs');
@@ -16,7 +16,10 @@ const { spawn, spawnSync } = require('child_process');
 
 const DIR = __dirname;
 const PORT = Number(process.env.CLAUDE_DASHBOARD_PORT) || 4777;
-const HOOK_URL = `http://localhost:${PORT}/events`;
+const TOKEN_FILE = path.join(DIR, '.token');
+const readToken = () => { try { return fs.readFileSync(TOKEN_FILE, 'utf8').trim(); } catch (_) { return ''; } };
+// With a token (--lan), local hooks carry it in the URL; the forwarder reads .token itself.
+const hookUrl = () => `http://localhost:${PORT}/events` + (readToken() ? `?token=${readToken()}` : '');
 const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'SubagentStart', 'SubagentStop', 'PostToolUse', 'TaskCreated', 'TaskCompleted'];
 const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const SETTINGS = path.join(CLAUDE_DIR, 'settings.json');
@@ -64,11 +67,11 @@ const FORWARDER = path.join(DIR, 'forward-hook.js');
 const qArg = s => '"' + s + '"';
 const forwarderCmd = () => `${qArg(NODE)} ${qArg(FORWARDER)}`;
 const isOurHook = h => h && (
-  (h.type === 'http' && typeof h.url === 'string' && /^http:\/\/(localhost|127\.0\.0\.1):\d+\/events$/.test(h.url) && h.url.endsWith(`:${PORT}/events`)) ||
+  (h.type === 'http' && typeof h.url === 'string' && /^http:\/\/(localhost|127\.0\.0\.1):\d+\/events(\?token=[^&]*)?$/.test(h.url) && h.url.includes(`:${PORT}/events`)) ||
   (h.type === 'command' && typeof h.command === 'string' && h.command.includes('forward-hook.js')));
 const hookFor = ev => COMMAND_EVENTS.includes(ev)
   ? { type: 'command', command: forwarderCmd(), timeout: 3 }
-  : { type: 'http', url: HOOK_URL, timeout: 2 };
+  : { type: 'http', url: hookUrl(), timeout: 2 };
 
 function installHooks() {
   const s = readSettings();
@@ -82,6 +85,7 @@ function installHooks() {
     const existing = groups.flatMap(g => (g && Array.isArray(g.hooks) ? g.hooks : [])).find(isOurHook);
     if (existing && existing.type === want.type) {
       if (want.command) existing.command = want.command; // refresh path if the folder moved
+      if (want.url) existing.url = want.url;              // refresh token
       continue;
     }
     if (existing) for (const g of groups) if (g && Array.isArray(g.hooks)) g.hooks = g.hooks.filter(h => h !== existing);
@@ -231,7 +235,7 @@ function removeAutostart() {
 // ------------------------------------------------------------- start / stop
 function ping() {
   return new Promise(res => {
-    const req = http.get({ host: '127.0.0.1', port: PORT, path: '/state', timeout: 1000 }, r => { r.resume(); res(r.statusCode === 200); });
+    const req = http.get({ host: '127.0.0.1', port: PORT, path: '/healthz', timeout: 1000 }, r => { r.resume(); res(r.statusCode === 200); });
     req.on('error', () => res(false)); req.on('timeout', () => { req.destroy(); res(false); });
   });
 }
@@ -262,16 +266,27 @@ async function start() {
   log((await waitUp(5000)) ? `✓ Server running on http://localhost:${PORT}` : `! Server did not come up — see ${LOG_FILE}`);
 }
 
+function lanIps() {
+  return Object.values(os.networkInterfaces()).flat()
+    .filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
+}
+
 // ------------------------------------------------------------- main
 (async () => {
   try {
     if (cmd === 'install') {
       log(`Installing Claude Agent Dashboard from ${DIR}\n`);
+      if (flag('--lan') && !readToken()) {
+        fs.writeFileSync(TOKEN_FILE, require('crypto').randomBytes(18).toString('base64url') + '\n', { mode: 0o600 });
+        log('✓ LAN mode: generated a token in .token (server now listens on your network, token required)');
+        stopServer(true); // restart so the server picks up the token
+      }
       if (!flag('--no-hooks')) installHooks();
       if (!flag('--no-claude-md')) addClaudeMd();
       if (!flag('--no-autostart')) installAutostart();
       await start();
-      log(`\nOpen http://localhost:${PORT}  — new Claude Code sessions will appear automatically.`);
+      log(`\nOpen http://localhost:${PORT}${readToken() ? '/?token=' + readToken() : ''}  — new Claude Code sessions will appear automatically.`);
+      if (readToken()) for (const ip of lanIps()) log(`From your phone/iPad on the same Wi-Fi: http://${ip}:${PORT}/?token=${readToken()}`);
       log('Sessions that were already running pick up the hooks once restarted.');
     } else if (cmd === 'uninstall') {
       removeHooks();
@@ -281,7 +296,10 @@ async function start() {
       log(`\nDone. Data files (state.json, events.jsonl, server.log) are still in ${DIR} — delete the folder to remove everything.`);
     } else if (cmd === 'start') { await start(); }
     else if (cmd === 'stop') { stopServer(false); }
-    else if (cmd === 'status') { log((await ping()) ? `running on http://localhost:${PORT}` : 'not running'); }
-    else { log('usage: node install.js [install|uninstall|start|stop|status] [--no-hooks] [--no-claude-md] [--no-autostart]'); process.exit(1); }
+    else if (cmd === 'status') {
+      log((await ping()) ? `running on http://localhost:${PORT}` : 'not running');
+      if (readToken()) for (const ip of lanIps()) log(`iPad/phone: http://${ip}:${PORT}/?token=${readToken()}`);
+    }
+    else { log('usage: node install.js [install|uninstall|start|stop|status] [--lan] [--no-hooks] [--no-claude-md] [--no-autostart]'); process.exit(1); }
   } catch (e) { console.error('✗ ' + e.message); process.exit(1); }
 })();

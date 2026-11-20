@@ -5,3 +5,4 @@ events.1.jsonl
 server.log
 server.pid
 start-hidden.vbs
+.token

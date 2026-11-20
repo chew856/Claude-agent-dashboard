@@ -28,7 +28,15 @@ node install.js
 
 Sessions that are already running only pick up the new hooks after a restart.
 
-Flags: `--no-hooks`, `--no-claude-md`, `--no-autostart`.
+### Watch from your phone or iPad (same Wi-Fi)
+
+```bash
+node install.js --lan
+```
+
+This generates a random token in `.token`, makes the server listen on your network with that token required, and prints a link like `http://192.168.1.23:4777/?token=…`. Open the link once on the iPad and it remembers you. Your local hooks get the token automatically. To go back to localhost-only, run `rm .token && node install.js`.
+
+Flags: `--lan`, `--no-hooks`, `--no-claude-md`, `--no-autostart`.
 
 ## Cloud sessions (claude.ai/code, e.g. from an iPad)
 

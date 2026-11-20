@@ -13,7 +13,9 @@ const path = require('path');
 // Hosted mode: set DASHBOARD_TOKEN (and the platform sets PORT). The server then listens on all
 // interfaces and requires the token for everything: hooks send `Authorization: Bearer <token>`,
 // browsers open /?token=<token> once and get a long-lived cookie.
-const TOKEN = process.env.DASHBOARD_TOKEN || '';
+// The token can also live in .token next to server.js (written by `node install.js --lan`).
+let TOKEN = process.env.DASHBOARD_TOKEN || '';
+if (!TOKEN) { try { TOKEN = fs.readFileSync(path.join(__dirname, '.token'), 'utf8').trim(); } catch (_) {} }
 const PORT = Number(process.env.CLAUDE_DASHBOARD_PORT || process.env.PORT) || 4777;
 const HOST = process.env.CLAUDE_DASHBOARD_HOST || (TOKEN ? '0.0.0.0' : '127.0.0.1');
 const DIR = __dirname;
@@ -387,7 +389,7 @@ const server = http.createServer((req, res) => {
   // Browser opened /?token=…: remember it in a cookie and drop it from the address bar.
   if (TOKEN && req.method === 'GET' && query.get('token')) {
     res.writeHead(302, {
-      'Set-Cookie': `cad_token=${encodeURIComponent(TOKEN)}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`,
+      'Set-Cookie': `cad_token=${encodeURIComponent(TOKEN)}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`,
       Location: url || '/',
     });
     res.end(); return;

@@ -4,7 +4,11 @@
 // Must print NOTHING to stdout (SessionStart stdout is added to Claude's context) and always exit 0.
 'use strict';
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const PORT = Number(process.env.CLAUDE_DASHBOARD_PORT) || 4777;
+let TOKEN = '';
+try { TOKEN = fs.readFileSync(path.join(__dirname, '.token'), 'utf8').trim(); } catch (_) {}
 const chunks = [];
 const done = () => process.exit(0);
 setTimeout(done, 1500).unref();
@@ -13,7 +17,7 @@ process.stdin.on('error', done);
 process.stdin.on('end', () => {
   const body = Buffer.concat(chunks);
   const req = http.request({ host: '127.0.0.1', port: PORT, path: '/events', method: 'POST', timeout: 1000,
-    headers: { 'Content-Type': 'application/json', 'Content-Length': body.length } }, res => { res.resume(); res.on('end', done); });
+    headers: Object.assign({ 'Content-Type': 'application/json', 'Content-Length': body.length }, TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}) }, res => { res.resume(); res.on('end', done); });
   req.on('error', done);
   req.on('timeout', () => { req.destroy(); done(); });
   req.end(body);
